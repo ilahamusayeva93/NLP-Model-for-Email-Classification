@@ -1,0 +1,130 @@
+---
+title: "R Notebook Spam Email Classification"
+author: "html_notebook"
+date: "11.04.23"
+---
+
+## Load Required Librarires
+```{r}
+library(tidyverse)
+library(text2vec)
+library(caTools)
+library(glmnet)
+```
+
+## Read and Explore Data
+```{r}
+# Read CSV file containing email data
+emails_data <- read_csv("emails.csv")
+
+# Display the first few rows of the dataset
+head(emails_data)
+
+# Display structure of the dataset
+str(emails_data)
+```
+
+## Data Preparation
+```{r}
+# Add an 'id' column to the dataset
+emails_data$id <- seq_len(nrow(emails_data))
+
+# Split the dataset into training and testing sets
+set.seed(123)
+split <- caTools::sample.split(emails_data$spam, SplitRatio = 0.8)
+train <- subset(emails_data, split == TRUE)
+test <- subset(emails_data, split == FALSE)
+
+```
+
+## Tokenization and Vectorization
+```{r}
+# Tokenize and create a document-term matrix (DTM) for training data
+it_train <- train$text %>% 
+  itoken(preprocessor = tolower, 
+         tokenizer = word_tokenizer,
+         ids = train$id,
+         progressbar = FALSE)
+
+# Create vocabulary
+vocab <- create_vocabulary(it_train)
+
+# Vectorize the training data
+vectorizer <- create_dtm(it_train, vectorizer = vocab_vectorizer(vocab))
+
+```
+
+## Model Training
+```{r}
+# Train a glmnet classifier using cross-validation
+glmnet_classifier <- cv.glmnet(
+  x = vectorizer,
+  y = train$spam,
+  family = 'binomial',
+  type.measure = "auc",
+  nfolds = 5,
+  thresh = 0.001,
+  maxit = 1000
+)
+
+```
+
+## Model Evaluation
+```{r}
+# Extract coefficients and feature importance
+coefficients <- coef(glmnet_classifier, s = "lambda.min")
+cat("Coefficients:\n")
+print(coefficients)
+
+feature_importance <- abs(coefficients)
+cat("\nFeature Importance:\n")
+print(feature_importance)
+
+```
+## Testing the Model
+```{r}
+# Tokenize and create a document-term matrix (DTM) for testing data
+it_test <- test$text %>% 
+  itoken(preprocessor = tolower, 
+         tokenizer = word_tokenizer,
+         ids = test$id,
+         progressbar = FALSE)
+
+# Vectorize the testing data using the existing vocabulary
+dtm_test <- create_dtm(it_test, vectorizer = vocab_vectorizer(vocab))
+
+# Make predictions on the testing data
+preds <- predict(glmnet_classifier, newx = as.matrix(dtm_test), type = 'response')[, 1]
+
+# Classify predictions based on a threshold
+labels_predicted <- ifelse(preds > 0.5, 1, 0)
+
+```
+
+## Model Evaluation on Test Set
+```{r}
+# Create a confusion matrix
+confusion_matrix <- table(test$spam, labels_predicted)
+cat("\nConfusion Matrix:\n")
+print(confusion_matrix)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
